@@ -1,0 +1,15 @@
+{
+  "jsonrpc": "2.0",
+  "id": "python-1",
+  "method": "tools/call",
+  "params": {
+    "name": "python.fetch_url",
+    "arguments": {
+      "url": "https://example.com",
+      "timeoutMs": 3000,
+      "headers": {
+        "User-Agent": "Android-Embedded-MCP/1.0"
+      }
+    }
+  }
+}

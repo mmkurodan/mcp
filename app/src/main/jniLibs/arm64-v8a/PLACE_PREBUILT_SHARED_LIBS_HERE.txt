@@ -1,0 +1,5 @@
+Place ABI-matched shared libraries here, for example:
+- libnode.so
+- vendor-specific JNI dependencies required by Python/Node/native services
+
+This template already builds libmcp_native.so from CMake.

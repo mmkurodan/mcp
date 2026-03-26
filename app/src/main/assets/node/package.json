@@ -1,0 +1,11 @@
+{
+  "name": "android-embedded-mcp-node",
+  "private": true,
+  "version": "1.0.0",
+  "main": "bootstrap.js",
+  "description": "Build-time bundled Node.js for Mobile Apps service for an embedded MCP server.",
+  "dependencies": {
+    "axios": "^1.12.0",
+    "cheerio": "^1.1.0"
+  }
+}
