@@ -1,0 +1,38 @@
+Android Embedded MCP Server - Operation Manual
+
+1. Runtime bundling
+- Python is bundled into the APK with Chaquopy at build time.
+- The Python fetch tool expects the requests and pydantic packages, which are now installed by the Gradle build.
+- The Node project files under assets/node are bundled with the app.
+- To fully enable the bundled Node runtime, place ABI-matched libnode.so files in app/src/main/jniLibs/arm64-v8a/ and app/src/main/jniLibs/x86_64/ before building.
+- The status panel in the app reports whether Python classes, Node starter classes, and libnode.so are actually packaged.
+
+2. Starting the local MCP server
+- Tap Start Service to launch the foreground service.
+- The app listens on http://127.0.0.1:8765/rpc.
+- Tap Stop Service to shut the foreground service down.
+
+3. Adding a custom API
+- Open the Custom HTTP APIs section.
+- Enter a tool name such as api.weather. If you leave it blank, the app generates one from the URL.
+- Enter a description, choose the HTTP method, set the remote URL, and optionally add default headers or a default JSON body.
+- Tap Save API. The API is stored on-device and registered as an MCP tool.
+
+4. Managing saved APIs
+- The Saved APIs section lists all saved custom tools.
+- Tap Edit to load a saved API back into the form.
+- Tap Delete to remove the saved API from on-device storage and from the tool registry.
+
+5. Running a local test
+- Load an API into the form or fill in a new draft definition.
+- Optionally enter Local test overrides JSON. Supported keys are query, headers, body, and timeoutMs.
+- Tap Run Local Test.
+- The Latest Local Test Result section shows the structured MCP tool result, including request and response details.
+
+6. MCP client usage
+- Call tools/list to discover the built-in tools plus your saved custom APIs.
+- Call tools/call with the saved tool name to execute it remotely through the loopback MCP endpoint.
+
+7. Notes
+- Custom APIs are intended for external http/https endpoints. Private, loopback, and link-local targets remain blocked by the runtime security policy.
+- Full APK assembly in this repository may still depend on the local Android NDK/CMake environment even when Java/resource compilation succeeds.

@@ -1,15 +1,16 @@
 from typing import Any, Dict
 
 import requests
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class FetchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     url: HttpUrl
     timeout_ms: int = Field(default=3000, ge=250, le=15000)
     headers: Dict[str, str] = Field(default_factory=dict)
+
+    class Config:
+        extra = "forbid"
 
 
 class FetchResponse(BaseModel):
@@ -21,7 +22,7 @@ class FetchResponse(BaseModel):
 
 
 def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
-    request = FetchRequest.model_validate(payload)
+    request = FetchRequest.parse_obj(payload)
     response = requests.get(
         str(request.url),
         headers=request.headers,
@@ -36,10 +37,10 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
         content_type=content_type,
         text_preview=preview,
         final_url=str(response.url),
-    ).model_dump()
+    ).dict()
 
 
 def invoke_json(payload_json: str) -> str:
-    request = FetchRequest.model_validate_json(payload_json)
-    result = invoke(request.model_dump())
-    return FetchResponse.model_validate(result).model_dump_json()
+    request = FetchRequest.parse_raw(payload_json)
+    result = invoke(request.dict())
+    return FetchResponse.parse_obj(result).json()

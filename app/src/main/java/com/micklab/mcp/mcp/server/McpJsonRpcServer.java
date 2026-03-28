@@ -83,13 +83,13 @@ public final class McpJsonRpcServer {
         return Jsons.objectOf(
                 "protocolVersion", SUPPORTED_PROTOCOL_VERSION,
                 "capabilities", Jsons.objectOf(
-                        "tools", Jsons.objectOf("listChanged", false)
+                        "tools", Jsons.objectOf("listChanged", true)
                 ),
                 "serverInfo", Jsons.objectOf(
                         "name", "android-embedded-mcp",
                         "version", "1.0.0"
                 ),
-                "instructions", "Use tools/list then tools/call against the loopback-only /rpc endpoint."
+                "instructions", "Use tools/list then tools/call against the loopback-only /rpc endpoint. Custom HTTP APIs can be added from the app UI."
         );
     }
 

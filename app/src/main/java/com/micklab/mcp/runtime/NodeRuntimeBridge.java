@@ -55,9 +55,12 @@ public final class NodeRuntimeBridge {
     }
 
     public synchronized String describe() {
+        String starterClass = resolveStarterClassName();
         return "root=" + (nodeRoot == null ? "(not configured)" : nodeRoot.getAbsolutePath())
                 + ", servicePort=" + servicePort
-                + ", started=" + started;
+                + ", started=" + started
+                + ", bundledNativeLib=" + hasBundledNativeLibrary()
+                + ", starterClass=" + (starterClass != null ? starterClass : "(missing)");
     }
 
     private void ensureStarted() throws Exception {
@@ -68,31 +71,52 @@ public final class NodeRuntimeBridge {
         if (!bootstrap.isFile()) {
             throw new IllegalStateException("Node bootstrap.js is missing from the bundled asset tree.");
         }
+        if (!hasBundledNativeLibrary()) {
+            throw new IllegalStateException(
+                    "Bundled Node runtime is missing libnode.so. Copy ABI-matched libnode.so files into app/src/main/jniLibs/<abi>/ before building."
+            );
+        }
         startEmbeddedNode(bootstrap);
         waitForHealth();
         started = true;
     }
 
     private void startEmbeddedNode(File bootstrap) throws Exception {
+        String starterClassName = resolveStarterClassName();
+        if (starterClassName == null) {
+            throw new IllegalStateException(
+                    "Node.js runtime starter classes were not found. Bundle the nodejs-mobile Java wrapper and matching libnode.so files under app/src/main/jniLibs/<abi>/."
+            );
+        }
         String[] args = new String[]{
                 "node",
                 bootstrap.getAbsolutePath(),
                 Integer.toString(servicePort)
         };
+        Class<?> starterClass = Class.forName(starterClassName);
+        if (!tryInvokeStarter(starterClass, args)) {
+            throw new IllegalStateException("Unable to invoke the bundled Node.js runtime starter.");
+        }
+    }
+
+    private String resolveStarterClassName() {
         for (String className : STARTER_CLASS_CANDIDATES) {
             try {
-                Class<?> starterClass = Class.forName(className);
-                if (tryInvokeStarter(starterClass, args)) {
-                    return;
-                }
+                Class.forName(className);
+                return className;
             } catch (ClassNotFoundException ignored) {
                 // Try the next runtime class candidate.
             }
         }
-        throw new IllegalStateException(
-                "Node.js for Mobile Apps runtime was not found. Add its Android dependency and "
-                        + "place ABI-matched libnode.so files under app/src/main/jniLibs/<abi>/."
-        );
+        return null;
+    }
+
+    private boolean hasBundledNativeLibrary() {
+        if (appContext == null) {
+            return false;
+        }
+        File nativeLibrary = new File(appContext.getApplicationInfo().nativeLibraryDir, "libnode.so");
+        return nativeLibrary.isFile();
     }
 
     private boolean tryInvokeStarter(Class<?> starterClass, String[] args) throws Exception {

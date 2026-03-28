@@ -2,6 +2,9 @@ package com.micklab.mcp.runtime;
 
 import android.content.Context;
 
+import com.micklab.mcp.api.CustomHttpApiDefinition;
+import com.micklab.mcp.api.CustomHttpApiStore;
+import com.micklab.mcp.api.CustomHttpApiToolHandler;
 import com.micklab.mcp.mcp.server.LoopbackHttpServer;
 import com.micklab.mcp.mcp.server.McpJsonRpcServer;
 import com.micklab.mcp.mcp.tools.EchoToolHandler;
@@ -11,9 +14,20 @@ import com.micklab.mcp.mcp.tools.PythonFetchToolHandler;
 import com.micklab.mcp.mcp.tools.ToolRegistry;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 public final class McpRuntimeBootstrap {
     private static final int MCP_PORT = 8765;
+    private static final Set<String> RESERVED_TOOL_NAMES = new LinkedHashSet<>(Arrays.asList(
+            "echo",
+            "python.fetch_url",
+            "node.scrape_title",
+            "native.invert_grayscale"
+    ));
 
     private static volatile McpRuntimeBootstrap instance;
 
@@ -22,6 +36,8 @@ public final class McpRuntimeBootstrap {
     private final PythonRuntimeBridge pythonRuntimeBridge = new PythonRuntimeBridge();
     private final NodeRuntimeBridge nodeRuntimeBridge = new NodeRuntimeBridge();
     private final NativeImageBridge nativeImageBridge = NativeImageBridge.getInstance();
+    private final CustomHttpApiStore customApiStore;
+    private final Set<String> customToolNames = new LinkedHashSet<>();
 
     private boolean toolsRegistered;
     private File runtimeRoot;
@@ -29,6 +45,7 @@ public final class McpRuntimeBootstrap {
 
     private McpRuntimeBootstrap(Context context) {
         appContext = context.getApplicationContext();
+        customApiStore = new CustomHttpApiStore(appContext);
     }
 
     public static McpRuntimeBootstrap getInstance(Context context) {
@@ -54,7 +71,8 @@ public final class McpRuntimeBootstrap {
         AssetInstaller.syncAssetTree(appContext, "node", nodeRoot);
         pythonRuntimeBridge.configure(appContext, pythonRoot);
         nodeRuntimeBridge.configure(appContext, nodeRoot);
-        registerToolsIfNeeded();
+        registerBuiltinToolsIfNeeded();
+        syncCustomApiTools(loadCustomApis());
     }
 
     public synchronized void start() throws Exception {
@@ -87,9 +105,24 @@ public final class McpRuntimeBootstrap {
         return MCP_PORT;
     }
 
+    public synchronized List<CustomHttpApiDefinition> loadCustomApis() throws Exception {
+        List<CustomHttpApiDefinition> definitions = new ArrayList<>(customApiStore.loadAll());
+        validateCustomApiDefinitions(definitions);
+        return definitions;
+    }
+
+    public synchronized void saveCustomApis(List<CustomHttpApiDefinition> definitions) throws Exception {
+        List<CustomHttpApiDefinition> safeDefinitions = new ArrayList<>(definitions);
+        validateCustomApiDefinitions(safeDefinitions);
+        customApiStore.saveAll(safeDefinitions);
+        registerBuiltinToolsIfNeeded();
+        syncCustomApiTools(safeDefinitions);
+    }
+
     public synchronized String describeState() {
         StringBuilder builder = new StringBuilder();
         builder.append("running=").append(isRunning()).append('\n');
+        builder.append("customApis=").append(customToolNames.size()).append('\n');
         builder.append("runtimeRoot=")
                 .append(runtimeRoot == null ? "(not prepared)" : runtimeRoot.getAbsolutePath())
                 .append('\n');
@@ -103,15 +136,16 @@ public final class McpRuntimeBootstrap {
         File predictedRuntimeRoot = runtimeRoot != null
                 ? runtimeRoot
                 : new File(appContext.getFilesDir(), "mcp-runtime");
-        return "app/src/main/assets/python -> "
+        return "Python runtime: Chaquopy bundles CPython and pip packages at build time.\n"
+                + "app/src/main/assets/python -> "
                 + new File(predictedRuntimeRoot, "python").getAbsolutePath()
-                + "\napp/src/main/assets/node -> "
+                + "\nNode project assets: app/src/main/assets/node -> "
                 + new File(predictedRuntimeRoot, "node").getAbsolutePath()
-                + "\napp/src/main/jniLibs/<abi> -> prebuilt libnode.so / vendor .so"
-                + "\napp/src/main/cpp -> libmcp_native.so";
+                + "\nNode native runtime: app/src/main/jniLibs/<abi>/libnode.so must be supplied per ABI to enable node.scrape_title."
+                + "\nJNI native code: app/src/main/cpp -> libmcp_native.so";
     }
 
-    private void registerToolsIfNeeded() {
+    private void registerBuiltinToolsIfNeeded() {
         if (toolsRegistered) {
             return;
         }
@@ -120,5 +154,36 @@ public final class McpRuntimeBootstrap {
         toolRegistry.register(new NodeScrapeToolHandler(nodeRuntimeBridge));
         toolRegistry.register(new NativeInvertToolHandler(nativeImageBridge));
         toolsRegistered = true;
+    }
+
+    private void syncCustomApiTools(List<CustomHttpApiDefinition> definitions) {
+        for (String toolName : customToolNames) {
+            toolRegistry.unregister(toolName);
+        }
+        customToolNames.clear();
+        for (CustomHttpApiDefinition definition : definitions) {
+            toolRegistry.register(new CustomHttpApiToolHandler(definition));
+            customToolNames.add(definition.getToolName());
+        }
+    }
+
+    private void validateCustomApiDefinitions(List<CustomHttpApiDefinition> definitions) {
+        Set<String> ids = new LinkedHashSet<>();
+        Set<String> toolNames = new LinkedHashSet<>();
+        for (CustomHttpApiDefinition definition : definitions) {
+            if (!ids.add(definition.getId())) {
+                throw new IllegalArgumentException("Duplicate custom API id: " + definition.getId());
+            }
+            if (RESERVED_TOOL_NAMES.contains(definition.getToolName())) {
+                throw new IllegalArgumentException(
+                        "Tool name is reserved by a built-in tool: " + definition.getToolName()
+                );
+            }
+            if (!toolNames.add(definition.getToolName())) {
+                throw new IllegalArgumentException(
+                        "Duplicate custom API tool name: " + definition.getToolName()
+                );
+            }
+        }
     }
 }

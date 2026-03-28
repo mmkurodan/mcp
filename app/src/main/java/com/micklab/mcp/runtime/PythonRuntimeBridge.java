@@ -46,7 +46,12 @@ public final class PythonRuntimeBridge {
 
     public synchronized String describe() {
         return "root=" + (pythonRoot == null ? "(not configured)" : pythonRoot.getAbsolutePath())
+                + ", chaquopyAvailable=" + isChaquopyOnClasspath()
                 + ", chaquopyStarted=" + isChaquopyStarted();
+    }
+
+    public synchronized boolean isChaquopyBundled() {
+        return isChaquopyOnClasspath();
     }
 
     private Object getPythonInstance() throws Exception {
@@ -111,6 +116,15 @@ public final class PythonRuntimeBridge {
             }
         }
         return null;
+    }
+
+    private boolean isChaquopyOnClasspath() {
+        try {
+            Class.forName("com.chaquo.python.Python");
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private boolean isChaquopyStarted() {

@@ -13,6 +13,10 @@ public final class ToolRegistry {
         handlers.put(handler.definition().getName(), handler);
     }
 
+    public synchronized void unregister(String toolName) {
+        handlers.remove(toolName);
+    }
+
     public synchronized JSONArray listTools() {
         JSONArray tools = new JSONArray();
         for (ToolHandler handler : handlers.values()) {
