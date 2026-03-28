@@ -2,8 +2,12 @@
   "name": "android-embedded-mcp-node",
   "private": true,
   "version": "1.0.0",
-  "main": "bootstrap.js",
-  "description": "Build-time bundled Node.js for Mobile Apps service for an embedded MCP server.",
+  "type": "commonjs",
+  "main": "index.js",
+  "description": "Build-time bundled Node.js for Mobile Apps project for the Android embedded MCP server.",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "axios": "^1.12.0",
     "cheerio": "^1.1.0"

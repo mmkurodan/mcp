@@ -3,6 +3,10 @@ plugins {
     id 'com.chaquo.python'
 }
 
+def isStrictBundledNodeRuntime() {
+    return (findProperty("mcpStrictBundledNodeRuntime")?.toString()?.toBoolean()) ?: false
+}
+
 android {
     namespace "com.micklab.mcp"
     compileSdk 35
@@ -45,6 +49,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress += ['js', 'cjs', 'mjs', 'json']
+    }
+
     externalNativeBuild {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
@@ -56,7 +64,6 @@ android {
 chaquopy {
     defaultConfig {
         version = "3.13"
-        buildPython("python3")
         pip {
             install("requests==2.33.0")
             install("pydantic==1.10.26")
@@ -69,11 +76,35 @@ tasks.register("verifyBundledNodeRuntime") {
         def missingAbis = (android.defaultConfig.ndk.abiFilters as Set).findAll { abi ->
             !file("src/main/jniLibs/${abi}/libnode.so").isFile()
         }
+        def missingNodeAssets = [
+                "src/main/assets/node/index.js",
+                "src/main/assets/node/package.json",
+                "src/main/assets/node/bootstrap.js"
+        ].findAll { !file(it).isFile() }
+        def headerFile = file("libnode/include/node/node.h")
+        def issues = []
+
         if (!missingAbis.isEmpty()) {
-            logger.lifecycle(
-                    "Node.js native runtime is not bundled for ABI(s): ${missingAbis.join(', ')}. "
-                            + "Copy libnode.so into app/src/main/jniLibs/<abi>/ to enable the bundled Node bridge."
+            issues << "Missing libnode.so for ABI(s): ${missingAbis.join(', ')}"
+        }
+        if (!missingNodeAssets.isEmpty()) {
+            issues << "Missing bundled Node asset file(s): ${missingNodeAssets.join(', ')}"
+        }
+        if (!headerFile.isFile()) {
+            issues << "Missing Node.js Mobile headers: app/libnode/include/node/node.h"
+        }
+
+        if (!issues.isEmpty()) {
+            def issueLines = issues.collect { issue -> "- ${issue}" }.join("\n")
+            def message = (
+                    "Bundled Node runtime template is incomplete.\n"
+                            + issueLines
+                            + "\nCommit the Node.js Mobile release artifacts into the repo so app users never need to place runtime files manually after install."
             )
+            if (isStrictBundledNodeRuntime()) {
+                throw new GradleException(message)
+            }
+            logger.lifecycle(message)
         }
     }
 }

@@ -78,6 +78,7 @@ public final class McpRuntimeBootstrap {
     public synchronized void start() throws Exception {
         prepareFilesystem();
         primeNativeLayer();
+        nodeRuntimeBridge.start();
         if (loopbackHttpServer == null) {
             McpJsonRpcServer jsonRpcServer = new McpJsonRpcServer(toolRegistry);
             loopbackHttpServer = new LoopbackHttpServer(
@@ -103,6 +104,10 @@ public final class McpRuntimeBootstrap {
 
     public int getMcpPort() {
         return MCP_PORT;
+    }
+
+    public int getNodePort() {
+        return nodeRuntimeBridge.getServicePort();
     }
 
     public synchronized List<CustomHttpApiDefinition> loadCustomApis() throws Exception {
@@ -139,10 +144,13 @@ public final class McpRuntimeBootstrap {
         return "Python runtime: Chaquopy bundles CPython and pip packages at build time.\n"
                 + "app/src/main/assets/python -> "
                 + new File(predictedRuntimeRoot, "python").getAbsolutePath()
-                + "\nNode project assets: app/src/main/assets/node -> "
+                + "\nNode project assets: app/src/main/assets/node/index.js + package.json + node_modules -> "
                 + new File(predictedRuntimeRoot, "node").getAbsolutePath()
-                + "\nNode native runtime: app/src/main/jniLibs/<abi>/libnode.so must be supplied per ABI to enable node.scrape_title."
-                + "\nJNI native code: app/src/main/cpp -> libmcp_native.so";
+                + "\nNode native runtime: app/src/main/jniLibs/<abi>/libnode.so is packaged into the APK and loaded with System.loadLibrary(\"node\")."
+                + "\nNode native headers: app/libnode/include/node/node.h enables the JNI bridge to node::Start(argc, argv)."
+                + "\nForeground service host: app/src/main/java/com/micklab/mcp/service/McpForegroundService starts the bundled Node singleton before exposing MCP."
+                + "\nJNI native code: app/src/main/cpp -> libmcp_native.so + libmcp_node.so"
+                + "\nProcess note: Node.js Mobile can only be started once per app process, so service restarts reattach to the warm singleton.";
     }
 
     private void registerBuiltinToolsIfNeeded() {

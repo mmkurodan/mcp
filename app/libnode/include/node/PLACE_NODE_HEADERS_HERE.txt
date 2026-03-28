@@ -1,0 +1,7 @@
+Copy the Node.js for Mobile Apps C/C++ headers here from the vendor release archive.
+
+Required compile-time path:
+- app/libnode/include/node/node.h
+
+These headers are used by libmcp_node.so to call node::Start(argc, argv) through JNI.
+They should be committed alongside the ABI-matched libnode.so files under app/src/main/jniLibs/.

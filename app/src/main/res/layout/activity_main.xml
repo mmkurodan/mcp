@@ -14,7 +14,7 @@
             android:id="@+id/titleView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Android Embedded MCP Server"
+            android:text="Android Embedded MCP + Node.js Runtime"
             android:textSize="24sp" />
 
         <TextView
@@ -22,7 +22,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Loopback-only JSON-RPC endpoint with bundled Python support, prepared Node packaging, editable custom HTTP APIs, and local test tools." />
+            android:text="Fully bundled loopback-only MCP server with Chaquopy Python, Node.js for Mobile Apps, editable custom HTTP APIs, and on-device runtime status." />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -35,7 +35,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Start Service" />
+                android:text="Start MCP + Node" />
 
             <Button
                 android:id="@+id/stopButton"
@@ -43,7 +43,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:text="Stop Service" />
+                android:text="Stop MCP Host" />
         </LinearLayout>
 
         <TextView

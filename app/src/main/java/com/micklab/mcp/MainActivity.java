@@ -65,6 +65,7 @@ public class MainActivity extends Activity {
         loadManual();
         loadCustomApis();
         refreshStatus();
+        startEmbeddedService(true);
     }
 
     @Override
@@ -108,21 +109,15 @@ public class MainActivity extends Activity {
 
     private void configureButtons() {
         Button startButton = findViewById(R.id.startButton);
-        startButton.setOnClickListener(view -> {
-            Intent intent = new Intent(this, McpForegroundService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent);
-            } else {
-                startService(intent);
-            }
-            refreshStatus("Starting embedded MCP service...");
-            statusView.postDelayed(this::refreshStatus, 750L);
-        });
+        startButton.setOnClickListener(view -> startEmbeddedService(false));
 
         Button stopButton = findViewById(R.id.stopButton);
         stopButton.setOnClickListener(view -> {
             stopService(new Intent(this, McpForegroundService.class));
-            refreshStatus("Stopping embedded MCP service...");
+            refreshStatus(
+                    "Stopping the outer MCP foreground service. "
+                            + "The bundled Node.js singleton stays warm until the app process exits."
+            );
             statusView.postDelayed(this::refreshStatus, 500L);
         });
 
@@ -155,6 +150,26 @@ public class MainActivity extends Activity {
                         REQUEST_POST_NOTIFICATIONS
                 );
             }
+        }
+    }
+
+    private void startEmbeddedService(boolean automatic) {
+        try {
+            Intent intent = new Intent(this, McpForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+            refreshStatus(
+                    automatic
+                            ? "Auto-starting bundled Node.js + MCP service..."
+                            : "Starting bundled Node.js + MCP service..."
+            );
+            statusView.postDelayed(this::refreshStatus, 750L);
+            statusView.postDelayed(this::refreshStatus, 1750L);
+        } catch (RuntimeException exception) {
+            refreshStatus(buildErrorMessage("Unable to start the foreground service", exception));
         }
     }
 
@@ -431,9 +446,16 @@ public class MainActivity extends Activity {
         builder.append("Saved custom APIs: ").append(customApis.size()).append("\n\n");
         builder.append("Runtime state:\n").append(bootstrap.describeState()).append("\n\n");
         builder.append("Bundled layout:\n").append(bootstrap.describeLayout()).append("\n\n");
-        builder.append("JSON-RPC endpoint:\nPOST http://127.0.0.1:")
+        builder.append("Android MCP JSON-RPC endpoint:\nPOST http://127.0.0.1:")
                 .append(bootstrap.getMcpPort())
-                .append("/rpc");
+                .append("/rpc")
+                .append("\n\nBundled Node internal endpoints:\nGET http://127.0.0.1:")
+                .append(bootstrap.getNodePort())
+                .append("/health\nPOST http://127.0.0.1:")
+                .append(bootstrap.getNodePort())
+                .append("/rpc")
+                .append("\n\nProcess note:\nNode.js Mobile starts only once per app process. "
+                        + "Stopping the foreground service does not make the runtime restartable until the app process exits.");
         statusView.setText(builder.toString());
     }
 

@@ -10,31 +10,31 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.OutputStream;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 public final class NodeRuntimeBridge {
-    private static final String[] STARTER_CLASS_CANDIDATES = {
-            "com.janeasystems.nodejsmobile.NodeJS",
-            "com.janeasystems.nodejsmobile.NodejsMobile",
-            "io.nodejs.mobile.NodejsMobile",
-            "io.nodejs.NodejsMobile"
-    };
-
     private Context appContext;
     private File nodeRoot;
     private int servicePort = 8766;
-    private boolean started;
+    private boolean runtimeHealthy;
+    private String lastHealthSummary = "(no health probe yet)";
+    private String lastError = "(not started)";
+    private long lastHealthyAtMs;
+    private long lastStartAttemptAtMs;
 
     public synchronized void configure(Context context, File runtimeRoot) {
         appContext = context.getApplicationContext();
         nodeRoot = runtimeRoot;
-        started = false;
+    }
+
+    public synchronized int getServicePort() {
+        return servicePort;
+    }
+
+    public synchronized void start() throws Exception {
+        ensureStarted();
     }
 
     public synchronized JSONObject scrapeTitle(String rawUrl, int requestedTimeoutMs) throws Exception {
@@ -43,72 +43,90 @@ public final class NodeRuntimeBridge {
         }
         String safeUrl = RuntimeSecurityPolicy.validateExternalHttpUrl(rawUrl);
         int timeoutMs = RuntimeSecurityPolicy.sanitizeTimeoutMs(requestedTimeoutMs);
-        ensureStarted();
         JSONObject payload = new JSONObject();
         payload.put("url", safeUrl);
         payload.put("timeoutMs", timeoutMs);
-        return postJson("/invoke", payload);
+        return callTool("node.scrape_title", payload);
     }
 
     public synchronized void stop() {
-        started = false;
+        runtimeHealthy = runtimeHealthy && NodeJS.isThreadAlive();
     }
 
     public synchronized String describe() {
-        String starterClass = resolveStarterClassName();
         return "root=" + (nodeRoot == null ? "(not configured)" : nodeRoot.getAbsolutePath())
+                + ", entryScript=" + describeEntryScript()
                 + ", servicePort=" + servicePort
-                + ", started=" + started
+                + ", processSingleton=true"
                 + ", bundledNativeLib=" + hasBundledNativeLibrary()
-                + ", starterClass=" + (starterClass != null ? starterClass : "(missing)");
+                + ", nativeStarter=" + sanitizeForStatus(NodeJS.describeNativeBridge())
+                + ", startRequested=" + NodeJS.hasStarted()
+                + ", threadAlive=" + NodeJS.isThreadAlive()
+                + ", healthy=" + runtimeHealthy
+                + ", lastStartAttemptAtMs=" + (lastStartAttemptAtMs == 0L ? "(never)" : lastStartAttemptAtMs)
+                + ", lastHealthyAtMs=" + (lastHealthyAtMs == 0L ? "(never)" : lastHealthyAtMs)
+                + ", lastHealth=" + sanitizeForStatus(lastHealthSummary)
+                + ", lastError=" + sanitizeForStatus(lastError)
+                + ", nodeState=" + sanitizeForStatus(NodeJS.describeState());
     }
 
     private void ensureStarted() throws Exception {
-        if (started) {
+        File entryScript = requireNodeFile(
+                "index.js",
+                "Node entry script index.js is missing from the bundled asset tree."
+        );
+        requireNodeFile(
+                "package.json",
+                "Node package.json is missing from the bundled asset tree."
+        );
+        if (runtimeHealthy && NodeJS.isThreadAlive()) {
             return;
-        }
-        File bootstrap = RuntimeSecurityPolicy.requireWithinRoot(nodeRoot, new File(nodeRoot, "bootstrap.js"));
-        if (!bootstrap.isFile()) {
-            throw new IllegalStateException("Node bootstrap.js is missing from the bundled asset tree.");
         }
         if (!hasBundledNativeLibrary()) {
             throw new IllegalStateException(
-                    "Bundled Node runtime is missing libnode.so. Copy ABI-matched libnode.so files into app/src/main/jniLibs/<abi>/ before building."
+                    "Bundled Node runtime is missing libnode.so. Commit ABI-matched libnode.so files into "
+                            + "app/src/main/jniLibs/<abi>/ before building the APK."
             );
         }
-        startEmbeddedNode(bootstrap);
-        waitForHealth();
-        started = true;
-    }
-
-    private void startEmbeddedNode(File bootstrap) throws Exception {
-        String starterClassName = resolveStarterClassName();
-        if (starterClassName == null) {
-            throw new IllegalStateException(
-                    "Node.js runtime starter classes were not found. Bundle the nodejs-mobile Java wrapper and matching libnode.so files under app/src/main/jniLibs/<abi>/."
-            );
+        if (NodeJS.hasStarted()) {
+            if (NodeJS.isThreadAlive()) {
+                waitForHealth();
+                return;
+            }
+            lastError = "Embedded Node.js runtime already ran in this process and cannot be restarted. "
+                    + NodeJS.describeState();
+            throw new IllegalStateException(lastError);
         }
         String[] args = new String[]{
                 "node",
-                bootstrap.getAbsolutePath(),
-                Integer.toString(servicePort)
+                entryScript.getAbsolutePath(),
+                Integer.toString(servicePort),
+                nodeRoot.getAbsolutePath()
         };
-        Class<?> starterClass = Class.forName(starterClassName);
-        if (!tryInvokeStarter(starterClass, args)) {
-            throw new IllegalStateException("Unable to invoke the bundled Node.js runtime starter.");
+        try {
+            lastStartAttemptAtMs = System.currentTimeMillis();
+            lastError = null;
+            NodeJS.startWithArguments(args);
+        } catch (RuntimeException | UnsatisfiedLinkError exception) {
+            lastError = renderException(exception);
+            throw new IllegalStateException(
+                    "Unable to start bundled Node.js runtime. " + lastError,
+                    exception
+            );
         }
+        waitForHealth();
     }
 
-    private String resolveStarterClassName() {
-        for (String className : STARTER_CLASS_CANDIDATES) {
-            try {
-                Class.forName(className);
-                return className;
-            } catch (ClassNotFoundException ignored) {
-                // Try the next runtime class candidate.
-            }
+    private File requireNodeFile(String relativePath, String missingMessage) throws Exception {
+        File resolvedFile = RuntimeSecurityPolicy.requireWithinRoot(nodeRoot, new File(nodeRoot, relativePath));
+        if (!resolvedFile.isFile()) {
+            throw new IllegalStateException(missingMessage);
         }
-        return null;
+        return resolvedFile;
+    }
+
+    private String describeEntryScript() {
+        return nodeRoot == null ? "(not prepared)" : new File(nodeRoot, "index.js").getAbsolutePath();
     }
 
     private boolean hasBundledNativeLibrary() {
@@ -119,50 +137,63 @@ public final class NodeRuntimeBridge {
         return nativeLibrary.isFile();
     }
 
-    private boolean tryInvokeStarter(Class<?> starterClass, String[] args) throws Exception {
-        for (Method method : starterClass.getMethods()) {
-            if (!method.getName().toLowerCase(Locale.US).contains("start")) {
-                continue;
-            }
-            Object target = resolveTarget(method, starterClass);
-            Class<?>[] parameterTypes = method.getParameterTypes();
-            if (parameterTypes.length == 1 && parameterTypes[0].equals(String[].class)) {
-                method.invoke(target, (Object) args);
-                return true;
-            }
-            if (parameterTypes.length == 2
-                    && Context.class.isAssignableFrom(parameterTypes[0])
-                    && parameterTypes[1].equals(String[].class)) {
-                method.invoke(target, appContext, (Object) args);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private Object resolveTarget(Method method, Class<?> starterClass) throws Exception {
-        if (Modifier.isStatic(method.getModifiers())) {
-            return null;
-        }
-        Constructor<?> constructor = starterClass.getDeclaredConstructor();
-        constructor.setAccessible(true);
-        return constructor.newInstance();
-    }
-
     private void waitForHealth() throws Exception {
         Exception lastFailure = null;
         for (int attempt = 0; attempt < 20; attempt++) {
             try {
                 JSONObject response = getJson("/health");
-                if ("ok".equalsIgnoreCase(response.optString("status"))) {
+                String status = response.optString("status");
+                if ("ok".equalsIgnoreCase(status) || "healthy".equalsIgnoreCase(status)) {
+                    runtimeHealthy = true;
+                    lastHealthyAtMs = System.currentTimeMillis();
+                    lastHealthSummary = response.toString();
+                    lastError = null;
                     return;
                 }
             } catch (Exception exception) {
                 lastFailure = exception;
             }
+            if (!NodeJS.isThreadAlive() && NodeJS.getLastError() != null) {
+                break;
+            }
             Thread.sleep(250L);
         }
-        throw new IllegalStateException("Node runtime did not report healthy startup.", lastFailure);
+        runtimeHealthy = false;
+        lastError = NodeJS.getLastError() != null ? NodeJS.getLastError() : NodeJS.describeState();
+        throw new IllegalStateException("Node runtime did not report healthy startup. " + lastError, lastFailure);
+    }
+
+    private JSONObject callTool(String toolName, JSONObject arguments) throws Exception {
+        ensureStarted();
+        JSONObject params = new JSONObject();
+        params.put("name", toolName);
+        params.put("arguments", arguments != null ? arguments : new JSONObject());
+        return postJsonRpc("tools/call", params);
+    }
+
+    private JSONObject postJsonRpc(String method, JSONObject params) throws Exception {
+        JSONObject request = new JSONObject();
+        request.put("jsonrpc", "2.0");
+        request.put("id", "android-node-bridge");
+        request.put("method", method);
+        request.put("params", params != null ? params : new JSONObject());
+
+        JSONObject response = postJson("/rpc", request);
+        if (response.has("error")) {
+            JSONObject error = response.optJSONObject("error");
+            if (error != null) {
+                throw new IllegalStateException(
+                        "Node JSON-RPC error " + error.optInt("code") + ": " + error.optString("message")
+                );
+            }
+            throw new IllegalStateException("Node JSON-RPC error: " + response.opt("error"));
+        }
+
+        Object result = response.opt("result");
+        if (result instanceof JSONObject) {
+            return (JSONObject) result;
+        }
+        throw new IllegalStateException("Node JSON-RPC result was not an object: " + result);
     }
 
     private JSONObject getJson(String path) throws Exception {
@@ -211,12 +242,25 @@ public final class NodeRuntimeBridge {
             }
             String responseBody = readFully(inputStream);
             if (responseCode < 200 || responseCode >= 300) {
+                runtimeHealthy = false;
+                lastError = "Node bridge returned HTTP " + responseCode + ": " + responseBody;
                 throw new IllegalStateException("Node bridge returned HTTP " + responseCode + ": " + responseBody);
             }
             return new JSONObject(responseBody);
         } finally {
             connection.disconnect();
         }
+    }
+
+    private String renderException(Throwable throwable) {
+        return throwable.getClass().getSimpleName() + ": " + throwable.getMessage();
+    }
+
+    private String sanitizeForStatus(String rawValue) {
+        if (rawValue == null || rawValue.isEmpty()) {
+            return "(none)";
+        }
+        return rawValue.replace('\n', ' ');
     }
 
     private String readFully(BufferedInputStream inputStream) throws Exception {

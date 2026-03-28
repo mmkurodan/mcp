@@ -1,5 +1,5 @@
-Place ABI-matched shared libraries here, for example:
+Commit the ARM64 Node.js runtime here:
 - libnode.so
-- vendor-specific JNI dependencies required by Python/Node/native services
 
-This template already builds libmcp_native.so from CMake.
+This APK template expects libnode.so to be bundled at build time so app users never have to place it manually after install.
+Keep this ABI aligned with the filters declared in app/build.gradle.

@@ -1,38 +1,58 @@
-Android Embedded MCP Server - Operation Manual
+Android Embedded MCP + Node.js Runtime - Operation Manual
 
-1. Runtime bundling
-- Python is bundled into the APK with Chaquopy at build time.
-- The Python fetch tool expects the requests and pydantic packages, which are now installed by the Gradle build.
-- The Node project files under assets/node are bundled with the app.
-- To fully enable the bundled Node runtime, place ABI-matched libnode.so files in app/src/main/jniLibs/arm64-v8a/ and app/src/main/jniLibs/x86_64/ before building.
-- The status panel in the app reports whether Python classes, Node starter classes, and libnode.so are actually packaged.
+1. Bundled project structure
+- app/src/main/assets/node contains the bundled Node project copied into files/mcp-runtime/node at startup.
+- Required Node files are:
+  - index.js
+  - bootstrap.js
+  - package.json
+  - node_modules/ (pure JavaScript only)
+- app/src/main/jniLibs/arm64-v8a/libnode.so and app/src/main/jniLibs/x86_64/libnode.so are packaged into the APK.
+- app/libnode/include/node/node.h is used at build time by the JNI starter bridge.
 
-2. Starting the local MCP server
-- Tap Start Service to launch the foreground service.
-- The app listens on http://127.0.0.1:8765/rpc.
-- Tap Stop Service to shut the foreground service down.
+2. Node.js for Mobile Apps startup model
+- The Android side loads libnode.so with System.loadLibrary("node").
+- libmcp_node.so calls node::Start(argc, argv) through the NodeJS.startWithArguments(...) wrapper.
+- The foreground service starts the bundled Node singleton before exposing the outer MCP endpoint.
+- Node.js Mobile can only be started once per app process. Stopping the service does not make Node restartable until the app process exits.
 
-3. Adding a custom API
+3. Foreground service ports
+- Outer Android MCP JSON-RPC endpoint: http://127.0.0.1:8765/rpc
+- Internal bundled Node JSON-RPC endpoint: http://127.0.0.1:8766/rpc
+- Internal bundled Node health endpoint: http://127.0.0.1:8766/health
+
+4. Built-in Node MCP tools
+- node.scrape_title fetches a remote page with axios + cheerio and returns the title plus a small anchor preview.
+- node.runtime.status returns the bundled Node runtime health, pid, entry script, and last error state through the internal Node JSON-RPC registry.
+
+5. ABI management
+- Keep the ABI set aligned between app/build.gradle and app/src/main/jniLibs/.
+- This template currently targets arm64-v8a and x86_64.
+- Bundle the same Node.js Mobile release for every enabled ABI.
+- Avoid native Node addons in assets/node/node_modules; keep the Node project pure JS so one asset tree works across both ABIs.
+
+6. Hot reload avoidance
+- Assets are copied once per installed APK version using the AssetInstaller stamp file.
+- The Node project runs with NODE_ENV=production and no on-device npm install step.
+- Edit the repo copy of assets/node and rebuild the APK instead of mutating files under files/mcp-runtime/.
+
+7. Custom HTTP APIs
 - Open the Custom HTTP APIs section.
 - Enter a tool name such as api.weather. If you leave it blank, the app generates one from the URL.
 - Enter a description, choose the HTTP method, set the remote URL, and optionally add default headers or a default JSON body.
 - Tap Save API. The API is stored on-device and registered as an MCP tool.
 
-4. Managing saved APIs
-- The Saved APIs section lists all saved custom tools.
-- Tap Edit to load a saved API back into the form.
-- Tap Delete to remove the saved API from on-device storage and from the tool registry.
-
-5. Running a local test
+8. Local testing
 - Load an API into the form or fill in a new draft definition.
 - Optionally enter Local test overrides JSON. Supported keys are query, headers, body, and timeoutMs.
 - Tap Run Local Test.
 - The Latest Local Test Result section shows the structured MCP tool result, including request and response details.
 
-6. MCP client usage
-- Call tools/list to discover the built-in tools plus your saved custom APIs.
-- Call tools/call with the saved tool name to execute it remotely through the loopback MCP endpoint.
-
-7. Notes
+9. Security notes
 - Custom APIs are intended for external http/https endpoints. Private, loopback, and link-local targets remain blocked by the runtime security policy.
+- The embedded Node internal service binds only to 127.0.0.1.
+
+10. Build notes
+- Run the Gradle verifyBundledNodeRuntime task to inspect missing Node artifacts.
+- Set -PmcpStrictBundledNodeRuntime=true to make missing Node runtime files fail the build immediately.
 - Full APK assembly in this repository may still depend on the local Android NDK/CMake environment even when Java/resource compilation succeeds.

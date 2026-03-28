@@ -31,7 +31,7 @@ public class McpForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, buildNotification("Initializing MCP runtime..."));
+        startForeground(NOTIFICATION_ID, buildNotification("Starting bundled Node.js + MCP runtimes..."));
         executorService.execute(() -> {
             try {
                 McpRuntimeBootstrap bootstrap = McpRuntimeBootstrap.getInstance(getApplicationContext());
@@ -40,7 +40,12 @@ public class McpForegroundService extends Service {
                 if (manager != null) {
                     manager.notify(
                             NOTIFICATION_ID,
-                            buildNotification("Listening on 127.0.0.1:" + bootstrap.getMcpPort())
+                            buildNotification(
+                                    "MCP ready on 127.0.0.1:"
+                                            + bootstrap.getMcpPort()
+                                            + " / Node internal RPC on 127.0.0.1:"
+                                            + bootstrap.getNodePort()
+                            )
                     );
                 }
             } catch (Exception exception) {
@@ -76,10 +81,10 @@ public class McpForegroundService extends Service {
         }
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "Embedded MCP Server",
+                "Embedded MCP + Node Runtime",
                 NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Hosts the embedded loopback-only MCP JSON-RPC server.");
+        channel.setDescription("Hosts the bundled Node.js runtime and the loopback-only MCP JSON-RPC server.");
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(channel);
@@ -98,7 +103,7 @@ public class McpForegroundService extends Service {
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
         return builder
-                .setContentTitle("Embedded MCP Server")
+                .setContentTitle("Embedded MCP + Node Runtime")
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.stat_sys_upload_done)
                 .setContentIntent(pendingIntent)
